@@ -218,22 +218,22 @@ def main():
                 e, g = model.st[k], got[k]
                 if e != g and not (k in TOLERANT and abs(e - g) <= 1):
                     errors += 1
-                    print(f"DIFF {k}: attendu {e}, obtenu {g}\n     {raw!r}")
+                    print(f"DIFF {k}: expected {e}, got {g}\n     {raw!r}")
         final = out[-1]
         chunked = subprocess.run([str(exe), "chunks"], input=stream.encode("latin-1"), capture_output=True,
                                  check=True).stdout.decode().strip()
         if chunked != final:
             errors += 1
-            print(f"DIFF découpage en morceaux :\n  octet par octet {final}\n  morceaux       {chunked}")
+            print(f"DIFF chunked feeding:\n  byte by byte {final}\n  chunks       {chunked}")
 
     st = model.st
-    print(f"{len(expected_lines)} lignes ({len(real)} réelles, {len(SYNTHETIC)} synthétiques, 1 parasite) ; "
-          f"phrases {st['sentences']}, décodées {st['decoded']}, ignorées {st['ignored']}, "
-          f"checksum {st['checksum_errors']}, format {st['format_errors']}, trop longues {st['overflows']}")
+    print(f"{len(expected_lines)} lines ({len(real)} real, {len(SYNTHETIC)} synthetic, 1 garbage); "
+          f"sentences {st['sentences']}, decoded {st['decoded']}, ignored {st['ignored']}, "
+          f"checksum errors {st['checksum_errors']}, format errors {st['format_errors']}, overflows {st['overflows']}")
     if errors:
-        print(f"ÉCHEC : {errors} différence(s)")
+        print(f"FAILED: {errors} difference(s)")
         sys.exit(1)
-    print("OK : parseur C identique à pynmea2 (octet par octet et par morceaux)")
+    print("OK: C parser matches pynmea2 (byte by byte and chunked)")
 
 
 if __name__ == "__main__":
