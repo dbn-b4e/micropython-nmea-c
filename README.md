@@ -1,8 +1,9 @@
 # micropython-nmea-c
 
 Allocation-free, integer-only NMEA 0183 parser written in C, with a MicroPython
-binding (module `nmea`). The core (`src/nmea_core.c`) is plain C99 with no
-dependency and can be used in any C/C++ firmware.
+binding (module `nmea`), and receiver configuration through vendor profiles
+(Quectel `$PAIR` included). The core (`src/nmea_core.c`, `src/nmea_vendor.c`)
+is plain C99 with no dependency and can be used in any C/C++ firmware.
 
 **License: PolyForm Noncommercial 1.0.0 — non-commercial use only. Personal,
 educational and research use permitted. See [LICENSE](LICENSE).**
@@ -78,6 +79,67 @@ def tick(_):
 Timer(mode=Timer.PERIODIC, period=50, callback=tick)
 ```
 
+### Configuring the receiver
+
+NMEA defines no configuration commands: every vendor has its own. Pass the
+receiver's profile to `Parser()`, then configure it at start-up:
+
+```python
+gps = nmea.Parser(nmea.QUECTEL_PAIR)        # Quectel LC26G / LC76G / LC86G
+r = gps.configure(uart, rate_ms=100,         # 10 Hz
+                  outputs=((nmea.GLL, 0), (nmea.VTG, 0), (nmea.GSV, 10)))
+# r: 0 = every step accepted; > 0 = receiver error code; None = no acknowledgement
+```
+
+Each request is sent, then the call waits for the receiver's acknowledgement
+(by default up to 1.5 s, one retry), **while still decoding the NMEA stream**;
+interrupts and scheduled callbacks keep running (`mp_hal_delay_ms`). Configure
+at start-up, not from a time-critical callback.
+
+| Call | Quectel `$PAIR` command |
+|---|---|
+| `p.set_rate(uart, ms[, timeout_ms])` | `PAIR050` — position fix interval, 100–1000 ms |
+| `p.set_output(uart, nmea.GSV, n[, timeout_ms])` | `PAIR062` — sentence once every `n` fixes (0 = off, ≤ 20) |
+| `p.save(uart[, timeout_ms])` | `PAIR382,1` → `PAIR003` → `PAIR513` → `PAIR002` (save to flash, required sequence above 1 Hz) |
+| `p.configure(uart, rate_ms=None, outputs=(), save=False, timeout_ms=1500)` | the above in order, stops at the first failure |
+
+Quectel acknowledgement codes (`$PAIR001,<cmd>,<result>`): 0 accepted,
+1 processing (waited for), 2 failed, 3 not supported, 4 parameter error,
+5 busy. Source: Quectel *LC26G&LC26G-T&LC76G&LC86G Series GNSS Protocol
+Specification* V1.4. Note from that document: above 1 Hz the receiver outputs
+only RMC, GGA and GNS at the fix rate, GSA and GSV at 1 Hz, and no GLL / VTG.
+
+Generic helpers, for any vendor or command not covered by a profile:
+
+```python
+uart.write(nmea.command("PAIR051"))   # b"$PAIR051*3E\r\n" (checksum added)
+gps.expect(b"$PAIR051,")              # keep the last line starting with this prefix
+...                                   # gps.poll(uart) as usual
+gps.response()                        # b"$PAIR051,1000*13" (fix interval) or None
+```
+
+Sentence constants for `set_output()`: `GGA`, `GLL`, `GSA`, `GSV`, `RMC`,
+`VTG`, `ZDA`, `GRS`, `GST`, `GNS`. Profiles: `VENDOR_NONE` (default, parse
+only), `QUECTEL_PAIR`.
+
+#### Adding a vendor profile
+
+Profiles are C tables (`src/nmea_vendor.h`): a vendor provides functions that
+build the command(s) for `set_rate`, `set_output` and `save`, and one that
+reads its acknowledgement line. To add one:
+
+1. write `src/nmea_vendor_<name>.c` implementing `nmea_vendor_t`, from the
+   vendor's documentation (commands *and* acknowledgement format);
+2. add its id to `nmea_vendor_id_t`, its entry to `nmea_vendors[]`, and a
+   constant to the module table in `modnmea.c`;
+3. add the examples printed in the vendor's documentation to `tests/test_core.c`.
+
+Only sentence-based (ASCII) command sets fit this model; binary protocols such
+as u-blox UBX need a different transport. Contributions welcome (MediaTek
+`$PMTK`, SiRF, Unicore...).
+
+### Values as attributes
+
 Attributes give the same values for convenience (`gps.lat_e7`, `gps.utc`,
 `gps.sats_in_view`…). Reading an attribute whose value does not fit a
 MicroPython small integer (about ±2^30, for example `utc` or a longitude beyond
@@ -87,7 +149,7 @@ MicroPython small integer (about ±2^30, for example `utc` or a longitude beyond
 
 | Call | Description |
 |---|---|
-| `nmea.Parser()` | new parser (about 250 bytes, allocated once) |
+| `nmea.Parser([vendor])` | new parser (about 400 bytes, allocated once); `vendor` = `nmea.QUECTEL_PAIR` to allow configuration |
 | `p.poll(stream)` | reads every byte the stream has ready (up to 2048 per call, `NMEA_POLL_MAX`), parses them; returns the number of checksum-valid sentences completed. The stream must be non-blocking (`UART(..., timeout=0)`) |
 | `p.feed(buf)` | same, from a bytes-like object, in any chunk size |
 | `p.read(arr)` | copies every value into `arr`, an `array('i')` of `nmea.NFIELDS` items indexed by `nmea.LAT_E7`, `nmea.LON_E7`… |
@@ -95,6 +157,9 @@ MicroPython small integer (about ±2^30, for example `utc` or a longitude beyond
 | `p.stats()` | `(sentences, decoded, ignored, checksum_errors, format_errors, overflows)` |
 | `p.reset()` | clears values, state and counters |
 | `p.reset_stats()` | clears the counters only |
+| `p.set_rate`, `p.set_output`, `p.save`, `p.configure` | receiver configuration, see above |
+| `p.expect(prefix)`, `p.response()` | catch a reply line by its prefix |
+| `nmea.command(body)` | `b"$" body "*hh\r\n"` |
 
 Constants: `NFIELDS`, the field indexes (`LAT_E7` … `SEQ`), `FIX_NONE`,
 `FIX_2D`, `FIX_3D`, `HAVE_TIME`, `HAVE_DATE`, `HAVE_POS`, `HAVE_ALT`,
@@ -116,8 +181,8 @@ The module is a standard
   `micropython-nmea-c/micropython.cmake`, or include it from your own
   `micropython.cmake`.
 
-Flash cost on Cortex-M4 (GCC 14.3, `-Os`): 3.5 kB for the core (no static RAM); about 5.4 kB in total
-once built into the MicroPython stm32 port with the binding and its names.
+Flash cost on Cortex-M4 (GCC 14.3, `-Os`): 3.7 kB for the parser and 0.4 kB for the vendor
+table (no static RAM); the binding and its names come on top (5.4 kB in total for version 0.1).
 
 ## Using the C core without MicroPython
 
@@ -131,7 +196,7 @@ nmea_feed(&gps, rx_bytes, rx_len);     /* any chunk size, e.g. from a UART ISR r
 if (gps.valid && (gps.have & NMEA_HAVE_POS)) { use(gps.lat_e7, gps.lon_e7); }
 ```
 
-`nmea_t` is a plain struct (248 bytes); `nmea_feed()` is reentrant per
+`nmea_t` is a plain struct (400 bytes); `nmea_feed()` is reentrant per
 instance and does not lock: call it from one context only.
 
 ## Rules and limits
@@ -175,7 +240,7 @@ UART driver. Size `rxbuf` for the longest gap between two `poll()` calls
 ## Tests
 
 ```
-make test                                  # host: C parser vs pynmea2 (needs cc, pip install pynmea2)
+make test                                  # host: C unit tests + C parser vs pynmea2 (needs cc, pip install pynmea2)
 make test-unix MPY_DIR=/path/to/micropython   # builds the unix port with the module, runs tests/test_micropython.py
 ```
 
@@ -185,8 +250,12 @@ make test-unix MPY_DIR=/path/to/micropython   # builds the unix port with the mo
   fields, several constellations, a constellation that stops reporting) to the
   C parser, byte by byte and in irregular chunks, and compares every value
   with what [pynmea2](https://github.com/Knio/pynmea2) decodes.
+- `tests/test_core.c` checks the command helpers and the Quectel profile
+  against the examples of the Quectel specification.
 - `tests/test_micropython.py` checks the binding (`feed`, `poll`, `read`,
-  attributes, counters, errors).
+  attributes, counters, errors) and the configuration calls against a fake
+  Quectel receiver (accepted, processing then accepted, error code, silent
+  receiver with retry, full `configure()` sequence).
 
 Tested with MicroPython v1.29.0:
 

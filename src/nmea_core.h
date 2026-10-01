@@ -6,6 +6,11 @@
  * the header of GSV - from any talker (GP, GL, GA, GB, GQ, GI, GN, BD...).
  * Everything else is checksum-verified and counted, then ignored.
  *
+ * Receiver configuration is vendor-specific (Quectel $PAIR, MediaTek $PMTK,
+ * u-blox UBX...), so the core only offers generic helpers: nmea_build() to
+ * frame a command with its checksum, and nmea_expect() / nmea_response() to
+ * catch the receiver's reply in the middle of the NMEA stream.
+ *
  * Design rules:
  *  - no heap, no floating point: every value is a scaled integer;
  *  - byte-oriented: feed whatever the UART delivered, in any chunk size;
@@ -29,6 +34,9 @@ extern "C" {
 
 /** Longest sentence accepted, '$' to checksum included (NMEA 0183 says 82). */
 #define NMEA_LINE_MAX 120
+
+/** Longest prefix accepted by nmea_expect(). */
+#define NMEA_EXPECT_MAX 24
 
 /** Number of constellations tracked for the satellites-in-view count. */
 #define NMEA_GSV_SYSTEMS 8
@@ -93,7 +101,13 @@ typedef struct {
     uint32_t seq;               /**< incremented on every decoded RMC (one per navigation epoch) */
     nmea_stats_t stats;
 
+    uint32_t responses;         /**< lines matching the nmea_expect() prefix since the last nmea_expect() */
+
     /* Private. */
+    char expect[NMEA_EXPECT_MAX + 1];
+    uint8_t expect_len;
+    char response[NMEA_LINE_MAX + 1];
+    uint16_t response_len;
     char line[NMEA_LINE_MAX + 1];
     uint16_t len;
     uint8_t in_line;
@@ -112,6 +126,23 @@ void nmea_reset_stats(nmea_t* p);
  * @return Number of checksum-valid sentences completed by this call.
  */
 int nmea_feed(nmea_t* p, const uint8_t* data, size_t len);
+
+/**
+ * @brief Frames a command: "$" body "*" checksum CR LF.
+ * @param body  Text between '$' and '*', e.g. "PAIR050,100"
+ * @return Length written to out (NUL-terminated), or 0 if out_size is too small
+ */
+size_t nmea_build(const char* body, size_t body_len, char* out, size_t out_size);
+
+/**
+ * @brief Starts watching for a reply: the last checksum-valid line beginning
+ *        with prefix (e.g. "$PAIR001,050,") is kept until the next call.
+ *        An empty prefix stops watching.
+ */
+void nmea_expect(nmea_t* p, const char* prefix, size_t len);
+
+/** Last line matching the nmea_expect() prefix, without CR LF; NULL if none yet. */
+const char* nmea_response(const nmea_t* p, size_t* len);
 
 /** Checksum of the characters between '$' and '*' (XOR), as used by NMEA. */
 uint8_t nmea_checksum(const char* s, size_t len);

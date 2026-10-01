@@ -5,5 +5,6 @@ NMEA_MOD_DIR := $(USERMOD_DIR)
 
 SRC_USERMOD += $(NMEA_MOD_DIR)/modnmea.c
 SRC_USERMOD += $(NMEA_MOD_DIR)/src/nmea_core.c
+SRC_USERMOD += $(NMEA_MOD_DIR)/src/nmea_vendor.c
 
 CFLAGS_USERMOD += -I$(NMEA_MOD_DIR)

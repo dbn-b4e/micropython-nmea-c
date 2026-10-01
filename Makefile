@@ -1,12 +1,13 @@
 # micropython-nmea-c - tests.
 #
-#   make test                       C parser vs pynmea2 on the host (needs cc and pynmea2)
+#   make test                       C unit tests + C parser vs pynmea2 on the host (needs cc and pynmea2)
 #   make test-unix MPY_DIR=<path>   build the MicroPython unix port with the module and
 #                                   run tests/test_micropython.py (path without spaces:
 #                                   make does not support them)
 #   make clean
 
 PYTHON ?= python3
+CC ?= cc
 BUILD  ?= build
 MPY_DIR ?=
 
@@ -16,6 +17,9 @@ UNIX_OPTS = VARIANT=standard MICROPY_PY_FFI=0 MICROPY_PY_BTREE=0 MICROPY_PY_SSL=
 .PHONY: test test-unix clean
 
 test:
+	mkdir -p $(BUILD)
+	$(CC) -std=c99 -Wall -Wextra -Werror -Isrc tests/test_core.c src/nmea_core.c src/nmea_vendor.c -o $(BUILD)/test_core
+	$(BUILD)/test_core
 	$(PYTHON) tests/test_vs_pynmea2.py
 
 # USER_C_MODULES must contain only this module: a link to the repository in $(BUILD)/modules.

@@ -70,4 +70,75 @@ try:
 except AttributeError:
     pass
 
+# 6. command builder and reply catching
+assert nmea.command("PAIR513") == b"$PAIR513*3D\r\n"
+assert nmea.command(b"PAIR050,100") == b"$PAIR050,100*22\r\n"
+p = nmea.Parser()
+p.expect(b"$PAIR001,050,")
+p.feed(b"$PAIR001,062,0*3F\r\n$PAIR001,050,0*3E\r\n")
+assert p.response() == b"$PAIR001,050,0*3E"
+
+# 7. Quectel $PAIR profile against a fake receiver
+RMC = b"$GNRMC,114249.000,A,5042.385152,N,00422.317906,E,0.27,10.85,011026,,,A,V*39\r\n"
+
+
+class FakeQuectel(io.IOBase):
+    """Answers each $PAIRnnn command with $PAIR001,nnn,<r> for every r in replies[nnn]."""
+
+    def __init__(self, replies=None):
+        self.rx = bytearray()
+        self.tx = []
+        self.replies = replies or {}
+
+    def write(self, b):
+        b = bytes(b)
+        self.tx.append(b)
+        cid = b[5:8]                               # b"$PAIR050,100*22" -> b"050"
+        for r in self.replies.get(cid, (b"1", b"0")):
+            self.rx += nmea.command(b"PAIR001," + cid + b"," + r)
+            self.rx += RMC                         # NMEA keeps flowing during the exchange
+        return len(b)
+
+    def readinto(self, buf):
+        if not self.rx:
+            return None                            # nothing ready: non-blocking
+        n = min(len(buf), len(self.rx))
+        buf[:n] = self.rx[:n]
+        self.rx = self.rx[n:]
+        return n
+
+
+q = nmea.Parser(nmea.QUECTEL_PAIR)
+u = FakeQuectel()
+assert q.set_rate(u, 100) == 0
+assert u.tx == [b"$PAIR050,100*22\r\n"]
+assert q.valid == 1 and q.lat_e7 == 507064192            # decoded while waiting
+
+u = FakeQuectel({b"062": (b"4",)})                         # parameter error
+assert q.set_output(u, nmea.GSV, 10) == 4
+assert u.tx == [nmea.command("PAIR062,3,10")], u.tx
+
+u = FakeQuectel({b"050": ()})                              # silent receiver: 2 attempts, then None
+assert q.set_rate(u, 100, 50) is None
+assert len(u.tx) == 2
+
+u = FakeQuectel()
+assert q.configure(u, rate_ms=100, outputs=((nmea.GLL, 0), (nmea.VTG, 0)), save=True) == 0
+assert u.tx == [nmea.command(c) for c in ("PAIR050,100", "PAIR062,1,0", "PAIR062,5,0",
+                                          "PAIR382,1", "PAIR003", "PAIR513", "PAIR002")], u.tx
+
+u = FakeQuectel({b"062": (b"3",)})                         # stops at the first failure
+assert q.configure(u, rate_ms=200, outputs=((nmea.GSV, 5), (nmea.GLL, 0))) == 3
+assert len(u.tx) == 2
+
+for bad in (lambda: nmea.Parser().set_rate(FakeQuectel(), 100),     # no profile
+            lambda: q.set_rate(FakeQuectel(), 50),                 # out of range
+            lambda: q.set_output(FakeQuectel(), nmea.GSV, 21),
+            lambda: nmea.Parser(99)):                              # unknown profile
+    try:
+        bad()
+        raise AssertionError("ValueError expected")
+    except ValueError:
+        pass
+
 print("OK")

@@ -421,6 +421,12 @@ static int process_line(nmea_t* p) {
         return 0;
     }
     p->stats.sentences++;
+    if (p->expect_len && n >= p->expect_len && memcmp(l, p->expect, p->expect_len) == 0) {
+        memcpy(p->response, l, n);              /* the last match wins: "processing" then "done" */
+        p->response[n] = 0;
+        p->response_len = (uint16_t)n;
+        p->responses++;
+    }
 
     fields_t f;
     split(l + 1, body_len, &f);
@@ -459,6 +465,46 @@ void nmea_init(nmea_t* p) {
     for (int i = 0; i < NMEA_GSV_SYSTEMS; i++) {
         p->gsv_seq[i] = (uint32_t)-10;          /* never counted until received */
     }
+}
+
+size_t nmea_build(const char* body, size_t body_len, char* out, size_t out_size) {
+    static const char hex[] = "0123456789ABCDEF";
+    if (out_size < body_len + 7) {              /* '$' body '*' h h CR LF NUL */
+        return 0;
+    }
+    uint8_t c = nmea_checksum(body, body_len);
+    out[0] = '$';
+    memcpy(out + 1, body, body_len);
+    char* q = out + 1 + body_len;
+    q[0] = '*';
+    q[1] = hex[c >> 4];
+    q[2] = hex[c & 15];
+    q[3] = '\r';
+    q[4] = '\n';
+    q[5] = 0;
+    return body_len + 6;
+}
+
+void nmea_expect(nmea_t* p, const char* prefix, size_t len) {
+    if (len > NMEA_EXPECT_MAX) {
+        len = NMEA_EXPECT_MAX;
+    }
+    memcpy(p->expect, prefix, len);
+    p->expect[len] = 0;
+    p->expect_len = (uint8_t)len;
+    p->response_len = 0;
+    p->response[0] = 0;
+    p->responses = 0;
+}
+
+const char* nmea_response(const nmea_t* p, size_t* len) {
+    if (p->response_len == 0) {
+        return NULL;
+    }
+    if (len) {
+        *len = p->response_len;
+    }
+    return p->response;
 }
 
 void nmea_reset_stats(nmea_t* p) {
