@@ -263,6 +263,9 @@ Tested with MicroPython v1.29.0:
 - STM32G474 (NUCLEO-G474RE) with a Quectel LC86GAAMD on UART4 at 115 200 baud, 1 Hz:
   3D fix, 16 satellites used / 35 in view, HDOP 0.84, PDOP 1.13, VDOP 0.76,
   63 sentences without a single error, **0 bytes allocated** over 200 `poll()` + `read()` calls.
+- same board, version 0.2.0: `Parser(nmea.QUECTEL_PAIR).configure(uart, rate_ms=100,
+  outputs=((nmea.GLL, 0), (nmea.VTG, 0)))` returns 0 (three commands acknowledged), then 10 fixes
+  per second, 320 sentences without error.
 
 ## License
 
