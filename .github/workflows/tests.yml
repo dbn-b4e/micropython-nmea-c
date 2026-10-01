@@ -9,8 +9,8 @@ jobs:
     name: C parser vs pynmea2
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install pynmea2
@@ -20,10 +20,10 @@ jobs:
     name: MicroPython unix port
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: micropython-nmea-c
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: micropython/micropython
           ref: v1.29.0
@@ -35,10 +35,10 @@ jobs:
     name: MicroPython stm32 build (NUCLEO_G474RE)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: modules/micropython-nmea-c
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: micropython/micropython
           ref: v1.29.0
