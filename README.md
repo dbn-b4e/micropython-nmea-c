@@ -116,7 +116,8 @@ The module is a standard
   `micropython-nmea-c/micropython.cmake`, or include it from your own
   `micropython.cmake`.
 
-Flash cost of the core on Cortex-M4 (GCC 14.3, `-Os`): 3.5 kB of code, no static RAM; the binding adds a little.
+Flash cost on Cortex-M4 (GCC 14.3, `-Os`): 3.5 kB for the core (no static RAM); about 5.4 kB in total
+once built into the MicroPython stm32 port with the binding and its names.
 
 ## Using the C core without MicroPython
 
@@ -187,7 +188,12 @@ make test-unix MPY_DIR=/path/to/micropython   # builds the unix port with the mo
 - `tests/test_micropython.py` checks the binding (`feed`, `poll`, `read`,
   attributes, counters, errors).
 
-Tested with MicroPython v1.29.0 (unix port).
+Tested with MicroPython v1.29.0:
+
+- unix port (CI);
+- STM32G474 (NUCLEO-G474RE) with a Quectel LC86GAAMD on UART4 at 115 200 baud, 1 Hz:
+  3D fix, 16 satellites used / 35 in view, HDOP 0.84, PDOP 1.13, VDOP 0.76,
+  63 sentences without a single error, **0 bytes allocated** over 200 `poll()` + `read()` calls.
 
 ## License
 
