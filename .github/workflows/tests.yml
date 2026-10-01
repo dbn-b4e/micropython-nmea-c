@@ -1,0 +1,49 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host:
+    name: C parser vs pynmea2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pynmea2
+      - run: make test
+
+  unix:
+    name: MicroPython unix port
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: micropython-nmea-c
+      - uses: actions/checkout@v4
+        with:
+          repository: micropython/micropython
+          ref: v1.29.0
+          path: micropython
+      - run: make -C micropython/ports/unix VARIANT=standard submodules
+      - run: make -C micropython-nmea-c test-unix MPY_DIR=$GITHUB_WORKSPACE/micropython
+
+  stm32:
+    name: MicroPython stm32 build (NUCLEO_G474RE)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: modules/micropython-nmea-c
+      - uses: actions/checkout@v4
+        with:
+          repository: micropython/micropython
+          ref: v1.29.0
+          path: micropython
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+      - run: make -C micropython/mpy-cross
+      - run: make -C micropython/ports/stm32 BOARD=NUCLEO_G474RE submodules
+      - run: make -C micropython/ports/stm32 BOARD=NUCLEO_G474RE USER_C_MODULES=$GITHUB_WORKSPACE/modules -j4
